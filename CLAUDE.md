@@ -17,7 +17,7 @@ The web version of Unpick, Shaun's published cryptic crossword clue trainer: eve
 ## Hard rules
 
 - **Fully offline.** No network requests: no CDNs, no fonts or images from the internet, no analytics, no `fetch`.
-- **Known issue:** this web copy loads its fonts from Google Fonts (`fonts.googleapis.com`). That is the only network request and it breaks the offline rule. The fix is to embed the fonts as base64 `woff2` inside `index.html`. Do not add any other network requests.
+- **Fonts are embedded** as base64 `woff2` in the `<style id="embedded-fonts">` block at the top of `index.html` (Fontsource, latin subset, variable, SIL Open Font License). Never link to Google Fonts or any other font service.
 - **No external dependencies.** Everything stays inside `index.html`.
 - Readable in direct sunlight and in the dark (provide both light and dark themes with strong contrast).
 - Works one-handed on a phone in portrait, and safe to interrupt at any moment without losing progress.
