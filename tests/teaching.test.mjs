@@ -36,7 +36,7 @@ function makeHarness() {
     confirm: () => approved,
     setTimeout: callback => callback(), clearTimeout(){},
   });
-  vm.runInContext(engine + '\n;globalThis.TEST_API={CLUES,DEV,LEARN_STEPS,EDITORIAL_REVIEW,Mini,Solver,Store,practicePool,dailyIndex,today,getState:()=>S};', context);
+  vm.runInContext(engine + '\n;globalThis.TEST_API={CLUES,DEV,LEARN_STEPS,RETIRED_LEGACY_IDS,CORPUS_VERSION,LEGACY_CORPUS_LENGTH,toCurrentIndex,migrateCorpusProgress,dailyCycle,Mini,Solver,Store,practicePool,dailyIndex,today,getState:()=>S};', context);
   return {
     api: context.TEST_API, element, data,
     approve(value = true) { approved = value; },
@@ -45,9 +45,9 @@ function makeHarness() {
 const stripped = text => text.toUpperCase().replace(/[^A-Z]/g, '');
 const sorted = text => [...stripped(text)].sort().join('');
 
-test('all 1,164 clue records have consistent enumeration and valid elementary mechanics', () => {
+test('all 1,148 clue records have consistent enumeration and valid elementary mechanics', () => {
   const {api} = makeHarness();
-  assert.equal(api.CLUES.length, 1164);
+  assert.equal(api.CLUES.length, 1148);
   for (const [index, c] of api.CLUES.entries()) {
     const [clue, answer, type, definition, fodder] = c;
     const enumeration = clue.match(/\(([\d, -]+)\)\s*$/);
@@ -67,14 +67,19 @@ test('all 1,164 clue records have consistent enumeration and valid elementary me
     }
   }
 });
-test('disputed clues are not taught as verified and never reappear in practice or minis', () => {
+test('16 rejected clue records are physically absent and the remaining pool is clean', () => {
   const {api} = makeHarness();
-  assert.equal(api.EDITORIAL_REVIEW.size, 16);
-  assert.ok(api.practicePool().every(i => !api.EDITORIAL_REVIEW.has(i)));
-  const disputed = new api.Solver({innerHTML:'',querySelectorAll:()=>[],querySelector:()=>null},'daily');
-  disputed.pick(175);
-  assert.match(disputed.hintText(1).html, /review/i);
-  assert.doesNotMatch(disputed.unpickHTML(), /LAUREN/);
+  const expected = [139,141,170,173,174,175,181,225,226,227,233,251,274,292,405,620];
+  const retired = ["Prints run off at a sprint (6)","Recipes revised for accuracy (7)","Pools drained through the loops (5)","Warned about the new subscriber (6)","Phantom disturbed at Hampton (7)","Neural connections rebuilt for Lauren (6)","Layer removed in the relay (5)","Panels dismantled at Naples (6)","Enemy, restructured, is in Yemen (5)","Analog conversion in Angola (6)","Suites converted for the tissue (6)","Loans arranged in the hair salon (5)","Testing changes to the setting (7)","Drove around Dover (5)","First of slate, laid, atop, tile, edge: the rock (5)","Duck below the connection (4)"];
+  assert.deepEqual(Array.from(api.RETIRED_LEGACY_IDS), expected);
+  assert.equal(api.CLUES.length, api.LEGACY_CORPUS_LENGTH - expected.length);
+  const actual = new Set(api.CLUES.map(c=>c[0]));
+  for (const clue of retired) assert.ok(!actual.has(clue), 'retired clue survives: ' + clue);
+  assert.equal(api.toCurrentIndex(295), 281);
+  assert.equal(api.toCurrentIndex(442), 427);
+  assert.equal(api.toCurrentIndex(620), -1);
+  assert.equal(api.toCurrentIndex(1163), 1147);
+  assert.ok(api.practicePool().every(i => i>=0 && i<api.CLUES.length));
 });
 test('novice can solve three progressively different clue types without involuntary spoilers', () => {
   const {api,element} = makeHarness();
@@ -97,7 +102,7 @@ test('novice can solve three progressively different clue types without involunt
 test('wrong completed attempt gives targeted feedback; unfinished entries are not recorded as wrong', () => {
   const {api,element}=makeHarness();
   const learner=new api.Solver(element(),'learn');
-  learner.pick(295);
+  learner.pick(281);
   learner.check();
   assert.equal(learner.wrong,0);
   for(const letter of 'XXXXX') learner.type(letter);
@@ -121,9 +126,9 @@ test('cancelled answer reveals no letters; deliberate approval reveals exactly o
 test('lesson sessions, hints and answers survive reload under the original progress key', () => {
   const {api,element,data}=makeHarness();
   const a=new api.Solver(element(),'learn');
-  a.pick(295);a.type('S');a.addHint();
+  a.pick(281);a.type('S');a.addHint();
   const restored=new api.Solver(element(),'learn');
-  restored.pick(295);
+  restored.pick(281);
   assert.equal(restored.fill[0],'S');
   assert.equal(restored.hints,1);
   assert.ok(data.has('unpick.v1'));
@@ -188,7 +193,7 @@ test('practice filters to chosen clue type and respects difficulty, without disp
   state.tiers=[1,2,3];
   let pool=api.practicePool();
   assert.ok(pool.length>0);
-  assert.ok(pool.every(i=>api.CLUES[i][2]==='hid'&&!api.EDITORIAL_REVIEW.has(i)));
+  assert.ok(pool.every(i=>api.CLUES[i][2]==='hid'&&i>=0 && i<api.CLUES.length));
   state.tiers=[1];
   pool=api.practicePool();
   assert.ok(pool.length>0);
@@ -196,4 +201,53 @@ test('practice filters to chosen clue type and respects difficulty, without disp
   state.practiceDevice='not-a-device';
   pool=api.practicePool();
   assert.ok(pool.some(i=>api.CLUES[i][2]!=='hid'));
+});
+
+test('saved v1 seen bits, sessions, lesson history and counters migrate once without reindexing the wrong clue', () => {
+  const {api}=makeHarness();
+  const source={name:'Example',solved:25,minis:3,dev:{ana:4},
+    seen:Array.from({length:1164},(_,i)=>[0,139,295,442,620,1163].includes(i)?'1':'0').join(''),
+    sessions:{daily:{i:295,day:api.today(),fill:'ST',hints:1,state:'play'},
+      practice:{i:620,fill:'L',state:'play'},learn:{i:442,fill:'C',state:'play'},
+      mini:{seed:10,fa:'A',fb:'A'}},
+    learnProgress:{0:{solved:true},295:{solved:true},442:{independent:true},620:{solved:true}}};
+  const output=api.migrateCorpusProgress(source);
+  assert.equal(output.corpusVersion,api.CORPUS_VERSION);
+  assert.equal(output.seen.length,1148);
+  for(const i of [0,281,427,1147]) assert.equal(output.seen[i],'1');
+  assert.equal(output.seen[139],'0');
+  assert.equal(output.sessions.daily.i,281);
+  assert.equal(output.sessions.learn.i,427);
+  assert.equal(output.sessions.practice,undefined);
+  assert.equal(output.sessions.mini,undefined);
+  assert.ok(output.learnProgress['281'].solved);
+  assert.ok(output.learnProgress['427'].independent);
+  assert.equal(output.learnProgress['620'],undefined);
+  assert.equal(output.solved,25);assert.equal(output.minis,3);
+  assert.equal(output.dev.ana,4);
+  const oldSeen=output.seen, oldHistory=JSON.stringify(output.learnProgress);
+  api.migrateCorpusProgress(output);
+  assert.equal(output.seen,oldSeen);
+  assert.equal(JSON.stringify(output.learnProgress),oldHistory);
+});
+test('daily schedule keeps every unaffected legacy daily clue and substitutes removed slots safely', () => {
+  const {api}=makeHarness();
+  const legacy=api.dailyCycle();
+  assert.equal(legacy.length,1164);
+  const deleted=new Set(Array.from(api.RETIRED_LEGACY_IDS));
+  let replaced=0;
+  for(let offset=0;offset<1164;offset++){
+    const date=new Date(Date.UTC(2026,0,1+offset)).toISOString().slice(0,10);
+    const oldIndex=legacy[offset];
+    const newIndex=api.dailyIndex(date);
+    assert.ok(newIndex>=0 && newIndex<api.CLUES.length);
+    if(deleted.has(oldIndex))replaced++;
+    else assert.equal(newIndex,api.toCurrentIndex(oldIndex), 'daily clue shifted: '+date);
+  }
+  assert.equal(replaced,16);
+});
+test('migration keeps lesson choices aligned with the surviving three answers', () => {
+  const {api}=makeHarness();
+  assert.deepEqual(Array.from(api.LEARN_STEPS,x=>x.i),[0,281,427]);
+  assert.deepEqual(Array.from(api.LEARN_STEPS,x=>api.CLUES[x.i][1]),['LISTEN','STONE','CARPET']);
 });
