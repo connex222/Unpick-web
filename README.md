@@ -1,26 +1,19 @@
 # Unpick
 
-A cryptic crossword trainer. Every clue comes apart when you solve it.
+**Unpick** is an offline cryptic-crossword trainer. Every clue comes apart when you solve it.
 
-This is the web version. Unpick is also published as an Android app. Privacy policy: `privacy.html`.
+Web release **v4.4**: **1,148 clues** across **12 wordplay types**, plus Daily, Practice, two-clue Minis, a short **three-step Learn** course and skill-based progress tracking. Full answers and worked examples stay hidden until requested.
 
-**Open it:** https://connex222.github.io/Unpick-web/
+**Open the web app:** https://connex222.github.io/Unpick-web/
 
-## How to use it
+On a phone, open it in Chrome, Edge or Safari, then use **Add to Home Screen** if preferred. Alternatively, download `index.html` and open it locally — the app has no runtime network or third-party dependencies. It includes light/dark themes and the fonts are embedded.
 
-1. Open the link above in Chrome, Edge or Safari, on a phone, tablet or computer.
-2. On a phone, use the browser's **Add to Home Screen** option to keep it one tap away.
+## Progress and upgrades
 
-Or download `index.html` and open it straight from your device. Everything is in that one file.
+Progress remains on your device under the existing `unpick.v1` local storage key. Version 4.4 automatically migrates progress from the older 1,164-clue catalogue after 16 unfair or unclear records were removed. Scores, completed lessons and solved-history entries survive; an in-progress mini crossing grid may need restarting once.
 
-## Saving
+More about the content decision and QA: [EDITORIAL-QA.md](EDITORIAL-QA.md). Automated tests: `node --test tests/teaching.test.mjs`.
 
-Your progress is saved on the device you play on. Your data is not sent anywhere. Clearing the browser's data deletes it.
+Unpick is also published as a separate Android app. This GitHub repository is the **web** application; Android releases need their own corpus update. Privacy policy for the published listing: [privacy.html](privacy.html).
 
-## Made by
-
-Shaun Ellison ([portfolio](https://connex222.github.io)).
-
-## For developers and AI assistants
-
-See `CLAUDE.md` for the build rules.
+Made by Shaun Ellison ([portfolio](https://connex222.github.io)).
