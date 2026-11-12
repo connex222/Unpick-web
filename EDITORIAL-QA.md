@@ -43,6 +43,9 @@ defences of questionable clues or assert their existing explanation is sound.
 ## Teaching corrections made
 
 - Progressive stages: clue type, likely definition, then indicator/wordplay.
+- Added Practice filtering by all 12 clue types, retaining difficulty selection and refusing disputed records.
+- Fixed an inadvertent spoiler in the clue-report/share pathway: the intended answer and device are withheld from unsolved reports.
+- Repeated wrong full attempts now invite a flagged alternative interpretation rather than asserting that every rejected parse is invalid.
   The three curated lesson indicators were checked individually.
 - Removed answer-initial and answer-final letter leaks from generic hints.
 - Kept full answers behind a specifically named action and confirmation.
