@@ -1119,12 +1119,34 @@ function mulberry(a){ return function(){ a|=0; a=a+0x6D2B79F5|0;
 
 const Mini = {
   seed: hash(today()+'m'), dir:'A', pos:0, done:{A:false,B:false}, revealed:false,
+  persist(){
+    S.sessions=S.sessions||{};
+    S.sessions.mini={day:today(),seed:this.seed,fa:this.fa.join(''),fb:this.fb.join(''),
+      dir:this.dir,pos:this.pos,done:this.done,revealed:this.revealed,credited:this.credited};
+    Store.save(S);
+  },
+  restore(){
+    const q=(S.sessions||{}).mini;
+    if(!q||q.day!==today()||q.seed!==this.seed||
+       typeof q.fa!=='string'||typeof q.fb!=='string'||
+       !/^[A-Z]*$/.test(q.fa)||!/^[A-Z]*$/.test(q.fb)||
+       q.fa.length>this.fa.length||q.fb.length>this.fb.length) return;
+    this.fa=Array.from({length:this.fa.length},(_,i)=>q.fa[i]||'');
+    this.fb=Array.from({length:this.fb.length},(_,i)=>q.fb[i]||'');
+    this.dir=q.dir==='B'?'B':'A';this.pos=Math.max(0,Math.min((this.dir==='A'?this.fa:this.fb).length-1,q.pos|0));
+    this.done={A:!!(q.done||{}).A,B:!!(q.done||{}).B};
+    this.revealed=!!q.revealed;this.credited={A:!!(q.credited||{}).A,B:!!(q.credited||{}).B};
+    if(this.revealed){this.fa=[...this.m.aw];this.fb=[...this.m.bw];this.done={A:true,B:true};}
+  },
   start(newSeed){
-    if(newSeed) this.seed = (this.seed*1664525+1013904223)>>>0;
+    const saved=(S.sessions||{}).mini;
+    if(!newSeed&&saved&&saved.day===today()&&Number.isInteger(saved.seed))this.seed=saved.seed;
+    if(newSeed)this.seed=(this.seed*1664525+1013904223)>>>0;
     this.m = buildMini(this.seed);
     this.fa=Array(this.m.aw.length).fill(''); this.fb=Array(this.m.bw.length).fill('');
-    this.dir='A'; this.pos=0; this.done={A:false,B:false}; this.revealed=false; this.msg='';
-    this.render();
+    this.dir='A'; this.pos=0; this.done={A:false,B:false}; this.revealed=false; this.msg=''; this.credited={A:false,B:false};
+    this.restore();
+    this.persist(); this.render();
   },
   cellVal(r,c){
     const m=this.m;
@@ -1136,34 +1158,39 @@ const Mini = {
     return null;
   },
   set(ch){
+    if(this.revealed) return;
     const m=this.m;
     if(this.dir==='A'){ this.fa[this.pos]=ch; if(this.pos===m.ci) this.fb[m.cj]=ch;
       this.pos=Math.min(this.pos+1,m.aw.length-1); }
     else { this.fb[this.pos]=ch; if(this.pos===m.cj) this.fa[m.ci]=ch;
       this.pos=Math.min(this.pos+1,m.bw.length-1); }
-    this.check(true); this.render();
+    this.check(true); this.persist(); this.render();
   },
   del(){
+    if(this.revealed) return;
     const m=this.m;
     if(this.dir==='A'){ if(this.fa[this.pos]==='') this.pos=Math.max(0,this.pos-1);
       this.fa[this.pos]=''; if(this.pos===m.ci) this.fb[m.cj]=''; }
     else { if(this.fb[this.pos]==='') this.pos=Math.max(0,this.pos-1);
       this.fb[this.pos]=''; if(this.pos===m.cj) this.fa[m.ci]=''; }
-    this.render();
+    this.persist(); this.render();
   },
   check(quiet){
+    if(this.revealed) return;
     const m=this.m;
     const a=this.fa.join('')===m.aw, b=this.fb.join('')===m.bw;
     const wasA=this.done.A, wasB=this.done.B;
     this.done={A:a,B:b};
-    if(a&&!wasA) recordSolve(CLUES[m.A][2],0,true,'mini',m.A);
-    if(b&&!wasB) recordSolve(CLUES[m.B][2],0,true,'mini',m.B);
+    if(a&&!this.credited.A){recordSolve(CLUES[m.A][2],0,true,'mini',m.A);this.credited.A=true;}
+    if(b&&!this.credited.B){recordSolve(CLUES[m.B][2],0,true,'mini',m.B);this.credited.B=true;}
     if(a&&b&&!(wasA&&wasB)){ S.minis++; Store.save(S); this.msg='Both cracked. That is the mini done.'; }
     else if(!quiet && !(a&&b)) this.msg='Not there yet — the crossing letter is your friend.';
-    if(!quiet) this.render();
+    this.persist(); if(!quiet) this.render();
   },
-  reveal(){ const m=this.m; this.fa=[...m.aw]; this.fb=[...m.bw];
-    this.done={A:true,B:true}; this.revealed=true; this.msg='Answers shown, with both unpicks below.'; this.render(); },
+  reveal(){
+    if(!confirm('Reveal both answers and their explanations? You can keep solving.'))return;
+    const m=this.m; this.fa=[...m.aw]; this.fb=[...m.bw];
+    this.done={A:true,B:true}; this.revealed=true; this.msg='Answers shown, with both unpicks below.'; this.persist(); this.render(); },
   render(){
     const m=this.m; if(!m){ $('#p-mini').innerHTML='<p>Could not build a grid — try again.</p>'; return; }
     const rows=m.bw.length, cols=m.aw.length;
@@ -1177,13 +1204,13 @@ const Mini = {
       const solved = (inA&&this.done.A) || (inB&&this.done.B);
       const num = (inA&&c===0) ? '1' : (inB&&r===0 ? (m.cj===0&&m.ci===0?'':'2') : '');
       const cross = inA&&inB;
-      g+=`<div class="cell${isCur?' cur':''}${inWord&&!isCur?' inword':''}${solved?' good':''}${cross?' cross':''}"
-            data-r="${r}" data-c="${c}"${cross?' title="the shared letter"':''}>${num?`<span class="n">${num}</span>`:''}${v}</div>`;
+      g+=`<button type="button" class="cell${isCur?' cur':''}${inWord&&!isCur?' inword':''}${solved?' good':''}${cross?' cross':''}"
+            data-r="${r}" data-c="${c}" aria-label="Row ${r+1}, column ${c+1}, ${v||'empty'}${cross?', shared letter':''}"${cross?' title="the shared letter"':''}>${num?`<span class="n">${num}</span>`:''}${v}</button>`;
     }
     const clueBlock=(key,ci,tag)=>{
       const c=CLUES[ci]; const [b,e]=splitClue(c[0]);
       const done=this.done[key];
-      return `<div class="mclue ${this.dir===key?'sel':''} ${done?'done':''}" data-dir="${key}">
+      return `<div class="mclue ${this.dir===key?'sel':''} ${done?'done':''}" data-dir="${key}" role="button" tabindex="0" aria-label="${tag}: ${b}">
         <span class="tag">${tag} · ${letters(c[1]).length} letters</span>
         <p>${markUp(b,c[3],c[4],done,done)} <span style="font-family:var(--mono);font-size:.62em;color:var(--bone-faint)">(${e})</span></p>
         ${done?`<div class="unpick on" style="margin-top:12px">${solverFor(ci).unpickHTML()}</div>`:''}
@@ -1192,13 +1219,13 @@ const Mini = {
     $('#p-mini').innerHTML=`
       <div class="meta"><span class="badge">Mini</span><span class="dot"></span>Two clues, one crossing letter
         <span class="dot"></span>${MINI_OK.length} clues in the pool</div>
-      <div class="grid" style="grid-template-columns:repeat(${cols},var(--tile))">${g}</div>
+      <div class="grid" role="group" aria-label="Mini crossword. Select a cell, then type its letter." style="grid-template-columns:repeat(${cols},var(--tile))">${g}</div>
       ${this.msg?`<div class="verdict ${this.done.A&&this.done.B?'win':''}">${esc(this.msg)}</div>`:''}
       ${clueBlock('A',m.A,'1 Across')}
       ${clueBlock('B',m.B,'2 Down')}
       <div class="acts">
-        <button class="btn key" data-m="check">Check</button>
-        <button class="btn" data-m="reveal" ${this.revealed?'disabled':''}>Show answers</button>
+        <button class="btn key" data-m="check" ${this.revealed?'disabled':''}>Check</button>
+        <button class="btn" data-m="reveal" ${this.revealed?'disabled':''}>Reveal both answers…</button>
         <button class="btn" data-m="new">New mini</button>
       </div>
       ${(this.done.A&&this.done.B)||this.revealed ? `<div class="shareRow">
@@ -1213,8 +1240,10 @@ const Mini = {
       else this.dir = inA?'A':'B';
       this.pos = this.dir==='A'?c:r; this.render(); focusIn();
     });
-    $('#p-mini').querySelectorAll('.mclue').forEach(el=>el.onclick=()=>{
-      this.dir=el.dataset.dir; this.pos=0; this.render(); focusIn(); });
+    $('#p-mini').querySelectorAll('.mclue').forEach(el=>{
+      el.onclick=()=>{this.dir=el.dataset.dir;this.pos=0;this.render();focusIn();};
+      el.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();el.click();}};
+    });
     $('#p-mini').querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>{
       const a=b.dataset.m;
       if(a==='check') this.check(false); else if(a==='reveal') this.reveal();
@@ -1241,7 +1270,7 @@ document.addEventListener('keydown',e=>{
     (e.target.tagName==='BUTTON'&&!e.target.classList.contains('tile')) ||
     e.target.getAttribute('role')==='button')) return;
   if(e.metaKey||e.ctrlKey||e.altKey) return;
-  const target = activePanel==='daily'?daily : activePanel==='practice'?practice : activePanel==='mini'?Mini : null;
+  const target = activePanel==='daily'?daily : activePanel==='practice'?practice : activePanel==='learn'?learner : activePanel==='mini'?Mini : null;
   if(!target) return;
   if(/^[a-zA-Z]$/.test(e.key)){
     e.preventDefault();
