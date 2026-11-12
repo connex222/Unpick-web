@@ -332,6 +332,21 @@ footer{padding:26px 0 calc(34px + env(safe-area-inset-bottom));border-top:1px so
   transition:opacity .24s,transform .24s;max-width:86vw;text-align:center;box-shadow:0 6px 22px rgba(0,0,0,.34)}
 .toast.on{opacity:1;transform:translate(-50%,0)}
 @media (prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+/* Teaching panels, independently earned mastery and explicit spoiler controls */
+.lessonHead{margin-top:20px}.lessonHead h2{font-family:var(--serif);font-size:29px;margin:0 0 6px}
+.lessonHead p,.lessonPrompt{color:var(--bone-dim);font-size:14px;line-height:1.55}
+.lessonSteps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:15px 0}
+.lessonStep{text-align:left;min-width:0;border:1px solid var(--line);border-radius:var(--r);padding:12px 9px;background:var(--ink2);font-size:12px;line-height:1.35}
+.lessonStep.active{border-color:var(--verdigris);color:var(--verdigris)}
+.lessonStep small{display:block;font-size:10px;color:var(--bone-faint);margin-top:7px}
+.lessonPrompt{padding:10px 12px;border-left:2px solid var(--verdigris);background:var(--ink2)}
+.reviewAlert{padding:12px;border:1px solid var(--rust);border-radius:var(--r);font-size:13px;line-height:1.5}
+.skillBars h3{margin:0 0 8px;font-size:15px}.skillBars p{font-size:13px;color:var(--bone-dim);line-height:1.5}
+.skillRow{display:grid;grid-template-columns:1fr auto;gap:3px;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px}
+.skillRow b{font-weight:500}.skillRow span{color:var(--verdigris)}
+.skillRow small{grid-column:1/-1;color:var(--bone-faint);font-size:11px}
+.guideExample{margin-top:8px}.guideExample summary{cursor:pointer;min-height:40px;padding:9px 0;font-size:13px;color:var(--verdigris)}
+@media(max-width:380px){.lessonSteps{grid-template-columns:1fr}.lessonStep{padding:8px 10px}.lessonStep small{display:inline;margin-left:8px}}
 </style>
 </head>
 <body>
@@ -358,6 +373,7 @@ footer{padding:26px 0 calc(34px + env(safe-area-inset-bottom));border-top:1px so
   <nav class="tabs" role="tablist">
     <button class="tab" role="tab" data-p="daily" aria-selected="true">Daily</button>
     <button class="tab" role="tab" data-p="practice" aria-selected="false">Practice</button>
+    <button class="tab" role="tab" data-p="learn" aria-selected="false">Learn</button>
     <button class="tab" role="tab" data-p="mini" aria-selected="false">Minis</button>
     <button class="tab" role="tab" data-p="stats" aria-selected="false">Progress</button>
     <button class="tab" role="tab" data-p="guide" aria-selected="false">Guide</button>
@@ -366,6 +382,7 @@ footer{padding:26px 0 calc(34px + env(safe-area-inset-bottom));border-top:1px so
   <main>
     <section class="panel on" id="p-daily"></section>
     <section class="panel" id="p-practice"></section>
+    <section class="panel" id="p-learn"></section>
     <section class="panel" id="p-mini"></section>
     <section class="panel" id="p-stats"></section>
     <section class="panel g" id="p-guide"></section>
@@ -811,16 +828,22 @@ class Solver{
       if(this.given.includes(j)) cls.push('given');
       if(!over && j===this.cur) cls.push('cur');
       if(over) cls.push('good');
-      tiles+=`<div class="${cls.join(' ')}" data-j="${j}" data-ch="${ch}">${esc(ch)}</div>`;
+      tiles+=`<button type="button" class="${cls.join(' ')}" data-j="${j}" data-ch="${ch}" aria-label="Letter ${j+1}, ${ch||'empty'}">${esc(ch)}</button>`;
     }
     let hints='';
     for(let t=1;t<=this.hints;t++){ const h=this.hintText(t);
       hints+=`<div class="hint"><span class="tier">${h.tier}</span>${h.html}</div>`; }
 
+    const step=LEARN_STEPS[lessonIndex(this.i)];
+    const learning=this.mode==='learn'?'<div class="lessonHead">'+
+      '<h2>Learn by solving</h2><p>Three short clues, each using a different device. Hints teach the method. Answers appear only after you solve or explicitly reveal.</p>'+
+      '<div class="lessonSteps">'+LEARN_STEPS.map((v,n)=>'<button class="lessonStep'+(v.i===this.i?' active':'')+'" data-step="'+n+'" aria-pressed="'+(v.i===this.i)+'">'+(n+1)+'. '+esc(v.title)+'<small>'+esc(lessonStatus(v.i))+'</small></button>').join('')+'</div>'+
+      '<p class="lessonPrompt"><b>Try this:</b> '+esc(step?step.prompt:'')+'</p></div>':'';
     const greet = (this.mode==='daily' && S.name)
       ? `<div class="greet">${esc(greeting())}, ${esc(S.name)}.</div>` : '';
     const label = this.mode==='daily'
       ? `<span class="badge">Daily</span><span class="dot"></span>No. ${dayNo(today())}<span class="dot"></span><span class="dateTag">${new Date().toLocaleDateString(undefined,{weekday:'short',day:'numeric',month:'long'})}</span>`
+      : this.mode==='learn' ? `<span class="badge">Lesson ${lessonIndex(this.i)+1} of ${LEARN_STEPS.length}</span>`
       : `<span class="badge">Practice</span><span class="dot"></span>Clue ${this.i+1} of ${CLUES.length}`;
     const scoreTag = `<span class="scoreTag">${this.strokes===0?'E':'+'+this.strokes}</span>`;
     const T = c[6]||2, tName = ['','Easy','Medium','Hard'][T];
@@ -828,21 +851,22 @@ class Solver{
     const devBadge = (over||this.hints>=1) ? `<span class="dot"></span><span class="badge bdev">${DEV[c[2]].n}</span>` : '';
 
     this.host.innerHTML = `
-      ${greet}
+      ${learning}${greet}
       <div class="meta">${scoreTag}${label}${tierTag}${devBadge}</div>
       ${this.mode==='practice' ? filterHTML() : ''}
+      ${EDITORIAL_REVIEW.has(this.i)?'<p class="reviewAlert" role="status">This clue needs editorial review; its parsing is not a reliable lesson.</p>':''}
       <p class="clue">${markUp(this.body,c[3],c[4],showDef,showFod)}<span class="enum">(${esc(this.en)})</span></p>
       <div class="answer"><div class="tileRow" role="group"
         aria-label="Answer, ${this.fill.length} letters, ${this.fill.filter(Boolean).length} entered">${tiles}</div></div>
       <div class="verdict ${this.msgCls||''}" role="status" aria-live="polite">${this.msg?esc(this.msg):''}</div>
       <div class="unpick ${over?'on':''}">${over?this.unpickHTML():''}</div>
-      <div class="hints">${hints}</div>
+      <div class="hints" role="status" aria-live="polite" aria-atomic="false">${hints}</div>
       <div class="acts">
         <button class="btn key" data-a="check" ${over?'disabled':''}>Check</button>
-        <button class="btn" data-a="hint" ${over||this.hints>=3?'disabled':''}>Hint<small>+1</small></button>
-        <button class="btn" data-a="letter" ${over?'disabled':''}>Letter<small>+2</small></button>
-        ${over ? `<button class="btn" data-a="next">${this.mode==='daily'?'Again':'Next'}</button>`
-               : `<button class="btn" data-a="up">Give up</button>`}
+        <button class="btn" data-a="hint" ${over||this.hints>=3?'disabled':''}>${['Clue type','Definition','Indicator'][this.hints]||'Hints used'}<small>hint +1</small></button>
+        <button class="btn" data-a="letter" ${over?'disabled':''}>Reveal a letter<small>+2</small></button>
+        ${over ? `<button class="btn" data-a="next">${this.mode==='learn'?(lessonIndex(this.i)===2?'Review lessons':'Next lesson'):this.mode==='daily'?'Try again':'Next clue'}</button>`
+               : `<button class="btn" data-a="up">Reveal full answer…</button>`}
       </div>
       <div class="flagRow"><button class="flagBtn" data-a="flag"
         title="Send the clue's details so it can be looked at">&#9873; Something wrong with this clue?</button></div>
@@ -859,6 +883,7 @@ class Solver{
       el.classList.toggle('cur', this.state==='play' && j===this.cur); });
     // keep the screen-reader label in step with what has been typed
     const row=this.host.querySelector('.tileRow');
+    t.forEach(el=>el.setAttribute('aria-label',`Letter ${+el.dataset.j+1}, ${el.dataset.ch||'empty'}`));
     if(row) row.setAttribute('aria-label',
       `Answer, ${this.fill.length} letters, ${this.fill.filter(Boolean).length} entered`);
   }
@@ -906,6 +931,9 @@ class Solver{
   }
   wire(){
     this.wireTiers();
+    this.host.querySelectorAll('[data-step]').forEach(b=>b.onclick=()=>{
+      S.lessonStep=+b.dataset.step;Store.save(S);this.pick(LEARN_STEPS[S.lessonStep].i);
+    });
     this.host.querySelectorAll('[data-a]').forEach(b=>b.onclick=()=>{
       const a=b.dataset.a;
       if(a==='hint') this.addHint();
@@ -938,11 +966,19 @@ function kbHTML(){
 }
 
 /* ─── stats ───────────────────────────────────────────────────── */
-function recordSolve(dev, strokes, clean, mode, idx){
+function recordSolve(dev, strokes, clean, mode, idx, wrong=0){
+  if(mode==='daily' && S.doneDaily[today()]) return; // replay does not count twice
   if(typeof idx === 'number') markSeen(idx);
   S.solved++; S.strokes+=strokes;
   if(clean) S.unaided++;
   S.dev[dev]=(S.dev[dev]||0)+1;
+  if(mode!=='mini'){
+    S.mastery=S.mastery||{};
+    const m=S.mastery[dev]||{attempts:0,independent:0,supported:0,cleanRun:0};
+    m.attempts++; if(clean&&wrong===0){m.independent++;m.cleanRun++;}
+    else{m.supported++;m.cleanRun=0;}
+    S.mastery[dev]=m;
+  }
   const t=today();
   if(mode==='daily' && !S.doneDaily[t]){
     S.doneDaily[t]=true;
@@ -972,6 +1008,13 @@ function renderStats(){
       <div class="fig"><b>${pct}%</b><span>Unaided</span></div>
       <div class="fig"><b>${S.minis}</b><span>Minis done</span></div>
     </div>
+    <div class="bars skillBars"><h3>Skills you can use again</h3>
+      <p>Independent: solved without hints, revealed letters or a wrong full answer. Three consecutive independent solves demonstrate a secure skill.</p>
+      ${ORDER.map(d=>{const m=(S.mastery||{})[d]||{};
+        const label=(m.cleanRun||0)>=3?'Secure':(m.independent||0)>0?'Developing':'Still practising';
+        return `<div class="skillRow"><b>${esc(DEV[d].n)}</b><span>${label}</span><small>${m.independent||0} independent of ${m.attempts||0} attempts</small></div>`;
+      }).join('')}
+    </div>
     <div class="bars">
       <div style="font-family:var(--mono);font-size:10px;letter-spacing:.13em;text-transform:uppercase;
         color:var(--bone-faint);margin-bottom:10px">Devices you have cracked</div>
@@ -997,7 +1040,7 @@ function renderStats(){
   }
   const r=$('#resetBtn'); if(r) r.onclick=()=>{
     if(!confirm('Clear your streak, scores and device history?')) return;
-    S={name:S.name,asked:true,solved:0,unaided:0,strokes:0,streak:0,best:0,last:null,dev:{},doneDaily:{},minis:0};
+    S={name:S.name,asked:true,solved:0,unaided:0,strokes:0,streak:0,best:0,last:null,dev:{},doneDaily:{},minis:0,mastery:{},learnProgress:{},sessions:{}};
     Store.save(S); paintRail(); renderStats();
   };
 }
@@ -1024,9 +1067,11 @@ function renderGuide(){
       <div class="dev">
         <h3>${d.n}</h3>
         <p>${d.hint}</p>
-        <p class="ex">${esc(b)} <span style="display:inline;font-family:var(--mono);font-size:12px;color:var(--bone-faint)">(${e})</span>
-          <span>${d.exA} — ${esc(d.exW)}</span></p>
         <p class="tell">${d.tell}</p>
+        <details class="guideExample"><summary>Show worked example (includes answer)</summary>
+          <p class="ex">${esc(b)} <span style="display:inline;font-family:var(--mono);font-size:12px;color:var(--bone-faint)">(${e})</span>
+          <span>${d.exA} — ${esc(d.exW)}</span></p>
+        </details>
       </div>`}).join('')}
     <div class="dev"><h3>Where the words come from</h3>
       <p>Definitions were drawn from <em>WordNet</em>, Princeton University's lexical database,
@@ -1041,6 +1086,7 @@ function renderGuide(){
 
 /* ─── mini crossword: one across, one down, crossing ──────────── */
 const MINI_OK = CLUES.map((c,i)=>i).filter(i=>{
+  if(EDITORIAL_REVIEW.has(i)) return false;
   const a=letters(CLUES[i][1]);
   return a.length>=4 && a.length<=8 && CLUES[i][1].indexOf(' ')<0;
 });
@@ -1185,13 +1231,15 @@ const Mini = {
 function solverFor(i){ const s=new Solver(document.createElement('div'),'x'); s.c=CLUES[i]; s.ans=letters(CLUES[i][1]); return s; }
 
 /* ─── shell ───────────────────────────────────────────────────── */
-let daily, practice, activePanel='daily';
+let daily, practice, learner, activePanel='daily';
 function focusIn(){ /* desktop typing goes through the document keydown listener; mobile uses the
      on-screen keyboard, so we deliberately never summon the native one over the clue */ }
 
 document.addEventListener('keydown',e=>{
   if(welcomeOpen()) return;
-  if(e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+  if(e.target && (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) ||
+    (e.target.tagName==='BUTTON'&&!e.target.classList.contains('tile')) ||
+    e.target.getAttribute('role')==='button')) return;
   if(e.metaKey||e.ctrlKey||e.altKey) return;
   const target = activePanel==='daily'?daily : activePanel==='practice'?practice : activePanel==='mini'?Mini : null;
   if(!target) return;
@@ -1232,7 +1280,13 @@ $('#themeBtn').onclick=()=>{
   daily = new Solver($('#p-daily'),'daily');
   daily.pick(dailyIndex(today()));
   practice = new Solver($('#p-practice'),'practice');
-  practice.pick(Math.floor(Math.random()*CLUES.length));
+  const oldPractice=(S.sessions||{}).practice;
+  practice.pick(oldPractice&&Number.isInteger(oldPractice.i)&&oldPractice.i>=0&&
+    oldPractice.i<CLUES.length&&!EDITORIAL_REVIEW.has(oldPractice.i)
+    ?oldPractice.i:practicePool()[Math.floor(Math.random()*practicePool().length)]);
+  learner=new Solver($('#p-learn'),'learn');
+  const savedStep=Math.max(0,Math.min(LEARN_STEPS.length-1,S.lessonStep|0));
+  learner.pick(LEARN_STEPS[savedStep].i);
   renderGuide(); renderStats(); paintRail(); initWelcome(); focusIn();
 })();
 </script>
