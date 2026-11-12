@@ -347,6 +347,9 @@ footer{padding:26px 0 calc(34px + env(safe-area-inset-bottom));border-top:1px so
 .skillRow small{grid-column:1/-1;color:var(--bone-faint);font-size:11px}
 .guideExample{margin-top:8px}.guideExample summary{cursor:pointer;min-height:40px;padding:9px 0;font-size:13px;color:var(--verdigris)}
 @media(max-width:380px){.lessonSteps{grid-template-columns:1fr}.lessonStep{padding:8px 10px}.lessonStep small{display:inline;margin-left:8px}}
+.practiceLabel{display:block;font-family:var(--mono);font-size:11px;color:var(--bone-dim);letter-spacing:.04em;margin:12px 0 6px}
+.practiceSelect{width:100%;min-height:44px;border:1px solid var(--line);border-radius:var(--r);
+ background:var(--ink2);color:var(--bone);font-family:var(--sans);font-size:15px;padding:9px 12px;margin:0 0 18px}
 </style>
 </head>
 <body>
@@ -513,12 +516,12 @@ function unseenIn(want){
   return out;
 }
 function practicePool(){
-  const want = wantTiers();
-  const fresh = unseenIn(want);
-  if(fresh.length) return fresh;                    // never repeat while any are left
-  const all = [];
-  for(let i=0;i<CLUES.length;i++) if(!EDITORIAL_REVIEW.has(i) && want.includes(CLUES[i][6]||2)) all.push(i);
-  return all.length ? all : CLUES.map((_,i)=>i).filter(i=>!EDITORIAL_REVIEW.has(i));
+  const want=wantTiers();
+  const device=ORDER.includes(S.practiceDevice)?S.practiceDevice:null;
+  const fits=i=>!EDITORIAL_REVIEW.has(i)&&want.includes(CLUES[i][6]||2)&&(!device||CLUES[i][2]===device);
+  const fresh=unseenIn(want).filter(fits);
+  if(fresh.length)return fresh;
+  return CLUES.map((_,i)=>i).filter(fits);
 }
 function filterHTML(){
   const want = S.tiers && S.tiers.length ? S.tiers : [1,2,3];
@@ -526,11 +529,15 @@ function filterHTML(){
   for(const c of CLUES) counts[c[6]||2]++;
   const btn = (t,label) => `<button class="tierBtn t${t} ${want.includes(t)?'on':''}" data-tier="${t}"
       aria-pressed="${want.includes(t)}">${label}<small>${counts[t]}</small></button>`;
-  const left = unseenIn(want).length;
-  const note = left
-    ? `${left} you haven't seen yet`
-    : `you've seen every clue in this selection — now reshuffling`;
+  const device=ORDER.includes(S.practiceDevice)?S.practiceDevice:'';
+  const left=unseenIn(want).filter(i=>!device||CLUES[i][2]===device).length;
+  const note=left?`${left} you haven't seen yet`:'All clues in this selection seen — now revisiting.';
   return `<div class="tierRow">${btn(1,'Easy')}${btn(2,'Medium')}${btn(3,'Hard')}</div>
+    <label class="practiceLabel" for="practiceDevice">Practise a specific clue type</label>
+    <select id="practiceDevice" class="practiceSelect" aria-label="Choose clue type to practise">
+      <option value="" ${device===''?'selected':''}>All clue types</option>
+      ${ORDER.map(k=>`<option value="${k}" ${device===k?'selected':''}>${esc(DEV[k].n)}</option>`).join('')}
+    </select>
     <p class="poolNote">${note}</p>`;
 }
 
@@ -664,6 +671,7 @@ class Solver{
     if(this.mode==='daily'){ this.pick(this.i,true); return; }
     if(this.mode==='learn'){ this.nextLesson(); return; }
     const pool = practicePool();
+    if(!pool.length){S.practiceDevice='';Store.save(S);return this.next();}
     let i, guard=0;
     do{ i=pool[Math.floor(Math.random()*pool.length)]; guard++; }while(i===this.i && guard<9);
     this.pick(i);
@@ -719,6 +727,7 @@ class Solver{
     this.msg=this.hints===0?'Not quite. Find the definition at one end, then look at the wordplay.':
       this.hints===1?'Not yet. Compare your answer with the likely definition.':
       'Not yet. Check the indicator and follow each wordplay step, then check the definition.';
+    if(this.wrong>=2)this.msg+=' Have a defensible alternative? Flag the clue for editorial review.';
     this.msgCls='miss';this.render();this.persist();
     this.host.querySelectorAll('.tile').forEach(t=>{t.classList.add('bad');setTimeout(()=>t.classList.remove('bad'),340)});
   }
@@ -894,8 +903,8 @@ class Solver{
       (this.mode==='daily' ? 'Daily No. '+dayNo(today()) : 'Practice')+' \u00b7 clue #'+this.i,
       '',
       'Clue: '+c[0],
-      'Answer: '+c[1],
-      'Device: '+dev+' \u00b7 rated '+tier,
+      this.state==='play'?'Intended answer: withheld until you solve':'Answer: '+c[1],
+      this.state==='play'?'Device: withheld until you request a hint':'Device: '+dev+' \u00b7 rated '+tier,
       '',
       'What is wrong with it: '].join('\n');
   }
@@ -928,6 +937,14 @@ class Solver{
       S.tiers = want; Store.save(S);
       if(!want.includes(CLUES[this.i][6]||2)) this.next(); else this.render();
     });
+    if(this.mode==='practice'){
+      const selector=this.host.querySelector('#practiceDevice');
+      if(selector)selector.onchange=()=>{
+        S.practiceDevice=ORDER.includes(selector.value)?selector.value:'';
+        Store.save(S);
+        if(S.practiceDevice&&this.c[2]!==S.practiceDevice)this.next();else this.render();
+      };
+    }
   }
   wire(){
     this.wireTiers();
