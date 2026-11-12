@@ -423,6 +423,16 @@ const DEV = {
 };
 const ORDER = ['ana','hid','cha','con','rev','del','dd','ini','alt','hom','cmp','lit'];
 
+/* Stable clue indices are retained; disputed material is excluded from practice. */
+const EDITORIAL_REVIEW = new Set([139,141,170,173,174,175,181,225,226,227,233,251,274,292,405,620]);
+const LEARN_STEPS = [
+ {i:0, device:'ana', title:'Rearrange letters', prompt:'Look for a phrase suggesting that letters must move.', indicator:'out of order'},
+ {i:295, device:'hid', title:'Find a hidden word', prompt:'Look for letters concealed in consecutive words.', indicator:'concealed by'},
+ {i:442, device:'cha', title:'Join smaller pieces', prompt:'Build the answer from two shorter ideas in order.', indicator:'with (joins the pieces)'}
+];
+function lessonIndex(i){return LEARN_STEPS.findIndex(x=>x.i===i)}
+function lessonStatus(i){const p=(S.learnProgress||{})[i];
+ return !p?'Not tried':p.independent?'Solved independently':p.solved?'Solved with support':'In progress'}
 /* ─── storage: artifact store → localStorage → memory ─────────── */
 const Store = (()=>{
   let mem={};
@@ -446,7 +456,7 @@ let S = { name:'', asked:false, solved:0, unaided:0, strokes:0, streak:0, best:0
 const $ = (s,r=document)=>r.querySelector(s);
 const letters = s => s.replace(/[^A-Za-z]/g,'').toUpperCase();
 const today = () => new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD local
-const APP_VERSION = '4.2';
+const APP_VERSION = '4.3-teaching';
 function hash(s){ let h=2166136261; for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619);} return (h>>>0); }
 /* A fixed permutation of the whole corpus, walked one clue per day. Deterministic,
    so every copy of the app shows the same daily clue, and no clue recurs until the
@@ -482,7 +492,7 @@ function markSeen(i){
 }
 function unseenIn(want){
   const s = seenStr(), out = [];
-  for(let i=0;i<CLUES.length;i++) if(s[i]==='0' && want.includes(CLUES[i][6]||2)) out.push(i);
+  for(let i=0;i<CLUES.length;i++) if(s[i]==='0' && !EDITORIAL_REVIEW.has(i) && want.includes(CLUES[i][6]||2)) out.push(i);
   return out;
 }
 function practicePool(){
@@ -490,8 +500,8 @@ function practicePool(){
   const fresh = unseenIn(want);
   if(fresh.length) return fresh;                    // never repeat while any are left
   const all = [];
-  for(let i=0;i<CLUES.length;i++) if(want.includes(CLUES[i][6]||2)) all.push(i);
-  return all.length ? all : CLUES.map((_,i)=>i);
+  for(let i=0;i<CLUES.length;i++) if(!EDITORIAL_REVIEW.has(i) && want.includes(CLUES[i][6]||2)) all.push(i);
+  return all.length ? all : CLUES.map((_,i)=>i).filter(i=>!EDITORIAL_REVIEW.has(i));
 }
 function filterHTML(){
   const want = S.tiers && S.tiers.length ? S.tiers : [1,2,3];
@@ -600,23 +610,50 @@ function markUp(body, def, fod, showDef, showFod){
 class Solver{
   constructor(host, mode){
     this.host=host; this.mode=mode; this.idx=0; this.cur=0;
-    this.hints=0; this.given=[]; this.state='play'; this.strokes=0;
+    this.hints=0; this.given=[]; this.state='play'; this.strokes=0; this.wrong=0;
   }
-  pick(i){
+  persist(){
+    S.sessions=S.sessions||{};
+    S.sessions[this.mode]={i:this.i,day:this.mode==='daily'?today():null,fill:this.fill.join(''),
+      cur:this.cur,hints:this.hints,given:this.given.slice(),state:this.state,
+      strokes:this.strokes,wrong:this.wrong};
+    Store.save(S);
+  }
+  restore(){
+    const q=(S.sessions||{})[this.mode];
+    if(!q||q.i!==this.i||(this.mode==='daily'&&q.day!==today())||
+       !['play','won','shown'].includes(q.state)||
+       typeof q.fill!=='string'||!/^[A-Z]*$/.test(q.fill)||q.fill.length>this.ans.length) return;
+    this.fill=Array.from({length:this.ans.length},(_,i)=>q.fill[i]||'');
+    this.cur=Math.max(0,Math.min(this.ans.length,q.cur|0));
+    this.hints=Math.max(0,Math.min(3,q.hints|0));
+    this.given=Array.isArray(q.given)?q.given.filter(i=>Number.isInteger(i)&&i>=0&&i<this.ans.length):[];
+    this.state=q.state;this.strokes=Math.max(0,q.strokes|0);this.wrong=Math.max(0,q.wrong|0);
+    if(this.state!=='play'){this.fill=[...this.ans];
+      this.msg=this.state==='won'?'Previously solved — explanation below.':'You chose to reveal the answer.';
+      this.msgCls=this.state==='won'?'win':'miss';}
+  }
+  pick(i, fresh=false){
     this.i=i; this.c=CLUES[i];
     const [body,en]=splitClue(this.c[0]);
     this.body=body; this.en=en; this.ans=letters(this.c[1]);
     this.fill=Array(this.ans.length).fill('');
-    this.cur=0; this.hints=0; this.given=[]; this.state='play'; this.strokes=0;
+    this.cur=0; this.hints=0; this.given=[]; this.state='play'; this.strokes=0; this.wrong=0;
     this.msg=''; this.msgCls='';
-    this.render();
+    if(!fresh) this.restore();
+    this.render(); this.persist();
   }
   next(){
-    if(this.mode==='daily'){ this.pick(this.i); return; }
+    if(this.mode==='daily'){ this.pick(this.i,true); return; }
+    if(this.mode==='learn'){ this.nextLesson(); return; }
     const pool = practicePool();
     let i, guard=0;
     do{ i=pool[Math.floor(Math.random()*pool.length)]; guard++; }while(i===this.i && guard<9);
     this.pick(i);
+  }
+  nextLesson(){
+    S.lessonStep=(lessonIndex(this.i)+1)%LEARN_STEPS.length;
+    Store.save(S);this.pick(LEARN_STEPS[S.lessonStep].i);
   }
   /* positions of letter cells within the raw answer string */
   cells(){
@@ -631,19 +668,19 @@ class Solver{
     this.fill[this.cur]=ch;
     let j=this.cur+1; while(j<n && this.given.includes(j)) j++;
     this.cur=Math.min(j,n);
-    this.paint(); this.auto();
+    this.paint(); this.persist(); this.auto();
   }
   back(){
     if(this.state!=='play') return;
     let j=this.cur-1; while(j>=0 && this.given.includes(j)) j--;
     if(j<0) return;
-    this.fill[j]=''; this.cur=j; this.paint();
+    this.fill[j]=''; this.cur=j; this.paint(); this.persist();
   }
   auto(){ if(this.fill.join('').length===this.ans.length && this.fill.join('')===this.ans) this.win(); }
 
   addHint(){
     if(this.state!=='play'||this.hints>=3) return;
-    this.hints++; this.strokes++; this.render();
+    this.hints++; this.strokes++; this.render(); this.persist();
   }
   giveLetter(){
     if(this.state!=='play') return;
@@ -652,32 +689,47 @@ class Solver{
     const k=free[0];
     this.given.push(k); this.fill[k]=this.ans[k]; this.strokes+=2;
     if(this.cur===k){ let j=k+1; while(j<this.ans.length&&this.given.includes(j))j++; this.cur=j; }
-    this.render(); this.auto();
+    this.render(); this.persist(); this.auto();
   }
   check(){
     if(this.state!=='play') return;
     if(this.fill.join('')===this.ans) return this.win();
-    this.msg='Not it. Try hint two: find the definition.'; this.msgCls='miss';
-    this.render();
+    if(this.fill.some(ch=>!ch)){
+      this.msg='There are empty spaces. The enumeration tells you how many letters you need.';
+      this.msgCls='miss';this.render();return;
+    }
+    this.wrong++;
+    this.msg=this.hints===0?'Not quite. Find the definition at one end, then look at the wordplay.':
+      this.hints===1?'Not yet. Compare your answer with the likely definition.':
+      'Not yet. Check the indicator and follow each wordplay step, then check the definition.';
+    this.msgCls='miss';this.render();this.persist();
     this.host.querySelectorAll('.tile').forEach(t=>{t.classList.add('bad');setTimeout(()=>t.classList.remove('bad'),340)});
   }
   win(){
     if(this.state!=='play') return;
     this.state='won';
     this.fill=[...this.ans];
-    recordSolve(this.c[2], this.strokes, this.hints===0&&this.given.length===0, this.mode, this.i);
+    const independent=this.hints===0&&this.given.length===0&&this.wrong===0;
+    recordSolve(this.c[2],this.strokes,independent,this.mode,this.i,this.wrong);
+    if(this.mode==='learn'){
+      S.learnProgress=S.learnProgress||{};
+      const prior=S.learnProgress[this.i]||{};
+      S.learnProgress[this.i]={solved:true,independent:!!prior.independent||independent,
+        lastHelp:this.hints,wrong:this.wrong};
+    }
     this.msg = this.strokes===0 ? 'Solved clean. No hints, no reveals.'
              : 'Solved — '+this.strokes+' over par.';
     this.msgCls='win';
-    this.render(); this.reel();
+    this.render(); this.persist(); this.reel();
   }
   giveUp(){
     if(this.state!=='play') return;
+    if(!confirm('Reveal the full answer and parsing? You can keep trying instead.')) return;
     this.state='shown'; this.fill=[...this.ans];
     markSeen(this.i);   // shown counts as seen, or Practice keeps serving it back
     Store.save(S);
     this.msg='Answer shown — the unpick is below.'; this.msgCls='miss';
-    this.render(); this.reel();
+    this.render(); this.persist(); this.reel();
   }
   /* signature: letters spin into place, fastest for anagrams */
   reel(){
@@ -698,25 +750,29 @@ class Solver{
 
   hintText(t){
     const c=this.c, d=DEV[c[2]];
-    if(t===1) return {tier:'Hint 1 — the device', html:`This one is a <b>${d.n.toLowerCase()}</b>. ${d.hint}`};
-    if(t===2 && c[2]==='dd') return {tier:'Hint 2 — the split', html:`There is no wordplay here at all. <b>Both halves</b> of the clue define the answer independently — find the word that satisfies each.`};
-    if(t===2) return {tier:'Hint 2 — the definition', html:`The <b>definition</b> is underlined in the clue above. The rest of the clue is wordplay pointing at the same answer.`};
-    // tier 3 — mechanism, tailored so it helps without always handing it over
-    const f=c[4];
-    if(c[2]==='ana') return {tier:'Hint 3 — the fodder', html:`Rearrange the letters of <code>${esc(f)}</code>.`};
-    if(c[2]==='hid') return {tier:'Hint 3 — where to look', html:`It is buried in <code>${esc(f)}</code>, running across the word break.`};
-    if(c[2]==='rev') return {tier:'Hint 3 — what to reverse', html:`Read <code>${esc(f)}</code> backwards.`};
-    if(c[2]==='ini') return {tier:'Hint 3 — the run', html:`Take the first letter of each word in: <code>${esc(f)}</code>.`};
-    if(c[2]==='alt') return {tier:'Hint 3 — the source', html:`Pull alternate letters out of <code>${esc(f)}</code>.`};
-    if(c[2]==='cha'){ const p=f.split('+').map(x=>letters(x).length);
-      return {tier:'Hint 3 — the shape', html:`Built from ${p.length} pieces in order: <code>${p.join(' + ')}</code> letters. First piece starts with <code>${this.ans[0]}</code>.`};}
-    if(c[2]==='con'){ const p=f.split(/\binside\b|\bin\b/).map(x=>letters(x).length).filter(Boolean);
-      return {tier:'Hint 3 — the shape', html:`A ${p[0]}-letter chunk goes inside a ${p[1]||'?'}-letter one. The answer opens with <code>${this.ans[0]}</code>.`};}
-    if(c[2]==='del') return {tier:'Hint 3 — the shape', html:`Start from a ${this.ans.length+1}-letter word and drop one letter. The answer opens with <code>${this.ans[0]}</code>.`};
-    if(c[2]==='hom') return {tier:'Hint 3 — the sound', html:`The answer opens with <code>${this.ans[0]}</code> and rhymes with the word the clue is imitating.`};
-    return {tier:'Hint 3 — the split', html:`Two meanings sit side by side. The answer opens with <code>${this.ans[0]}</code> and ends with <code>${this.ans[this.ans.length-1]}</code>.`};
+    if(EDITORIAL_REVIEW.has(this.i))return {tier:'Editorial review',
+      html:'This clue has a disputed definition or construction. Its parsing is withheld pending review.'};
+    if(t===1)return {tier:'Hint 1 — clue type',
+      html:'Look for a <b>'+esc(d.n.toLowerCase())+'</b>. '+esc(d.hint)};
+    if(t===2){
+      if(c[2]==='dd')return {tier:'Hint 2 — both meanings',
+        html:'Both parts separately define the same word. There is no separate wordplay.'};
+      if(c[2]==='lit')return {tier:'Hint 2 — the whole clue',
+        html:'The whole clue supplies both the definition and the wordplay.'};
+      return {tier:'Hint 2 — likely definition',
+        html:'The underlined words near the clue edge are <b>'+esc(c[3])+'</b>. What fits that meaning and length?'};
+    }
+    const step=LEARN_STEPS.find(x=>x.i===this.i);
+    if(step)return {tier:'Hint 3 — the signal',
+      html:'Look at <b>'+esc(step.indicator)+'</b>. '+esc(c[2]==='cha'?
+        'Join smaller pieces in clue order.':c[2]==='hid'?
+        'Ignore word breaks and read the letters in sequence.':
+        'Rearrange the given letters without adding or removing any.')};
+    return {tier:'Hint 3 — the indicator and method',
+      html:esc(d.tell)+' Find the indicator before manipulating the letters. No answer letters are given.'};
   }
   unpickHTML(){
+    if(EDITORIAL_REVIEW.has(this.i)) return '<span class="lbl">Editorial review pending</span><p class="note">A reliable parsing has not been established.</p>';
     const c=this.c, d=DEV[c[2]];
     let op;
     const A=`<i>${esc(c[1])}</i>`;
