@@ -526,7 +526,7 @@ function practicePool(){
 function filterHTML(){
   const want = S.tiers && S.tiers.length ? S.tiers : [1,2,3];
   const counts = [0,0,0,0];
-  for(const c of CLUES) counts[c[6]||2]++;
+  for(const [i,c] of CLUES.entries())if(!EDITORIAL_REVIEW.has(i))counts[c[6]||2]++;
   const btn = (t,label) => `<button class="tierBtn t${t} ${want.includes(t)?'on':''}" data-tier="${t}"
       aria-pressed="${want.includes(t)}">${label}<small>${counts[t]}</small></button>`;
   const device=ORDER.includes(S.practiceDevice)?S.practiceDevice:'';
@@ -671,7 +671,7 @@ class Solver{
     if(this.mode==='daily'){ this.pick(this.i,true); return; }
     if(this.mode==='learn'){ this.nextLesson(); return; }
     const pool = practicePool();
-    if(!pool.length){S.practiceDevice='';Store.save(S);return this.next();}
+    if(!pool.length){S.tiers=[1,2,3];Store.save(S);toast('No clues of that type at this difficulty. Showing all difficulties.');return this.next();}
     let i, guard=0;
     do{ i=pool[Math.floor(Math.random()*pool.length)]; guard++; }while(i===this.i && guard<9);
     this.pick(i);
