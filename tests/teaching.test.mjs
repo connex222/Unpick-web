@@ -168,3 +168,32 @@ test('app remains offline and keeps the v1 save identifier', () => {
   assert.match(source,/const K='unpick.v1'/);
   assert.match(html,/id="embedded-fonts"/);
 });
+
+
+test('a report does not silently reveal the answer or device before a solve', () => {
+  const {api,element}=makeHarness();
+  const learner=new api.Solver(element(),'learn');
+  learner.pick(0);
+  assert.doesNotMatch(learner.reportText(),/Answer: LISTEN/);
+  assert.doesNotMatch(learner.reportText(),/Device: Anagram/);
+  assert.match(learner.reportText(),/withheld/);
+  for (const ch of 'LISTEN') learner.type(ch);
+  assert.match(learner.reportText(),/Answer: LISTEN/);
+  assert.match(learner.reportText(),/Device: Anagram/);
+});
+test('practice filters to chosen clue type and respects difficulty, without disputed records', () => {
+  const {api}=makeHarness();
+  const state=api.getState();
+  state.practiceDevice='hid';
+  state.tiers=[1,2,3];
+  let pool=api.practicePool();
+  assert.ok(pool.length>0);
+  assert.ok(pool.every(i=>api.CLUES[i][2]==='hid'&&!api.EDITORIAL_REVIEW.has(i)));
+  state.tiers=[1];
+  pool=api.practicePool();
+  assert.ok(pool.length>0);
+  assert.ok(pool.every(i=>api.CLUES[i][6]===1));
+  state.practiceDevice='not-a-device';
+  pool=api.practicePool();
+  assert.ok(pool.some(i=>api.CLUES[i][2]!=='hid'));
+});
